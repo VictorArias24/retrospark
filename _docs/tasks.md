@@ -1,0 +1,161 @@
+# MVP Backlog
+
+## 1. Scaffold an empty Django project
+Goal: Create the smallest runnable Django project with a passing test.
+Description: Add the Django project, dependency manifest, and one built-in Django test that verifies the application starts. Document the command that runs the test; do not add product models or screens yet.
+
+## 2. Add the Docker Compose and Celery runtime
+Goal: Run Django and its supporting processes through Docker Compose.
+Description: Define Django, PostgreSQL, Redis, Celery worker, and Celery scheduler services with health checks and persistent database data, then wire Celery to Django with one harmless smoke task. Verify the application test and task execution inside the containers without embedding secrets in the Compose file.
+
+## 3. Establish secure application settings
+Goal: Centralize environment validation and safe Django defaults.
+Description: Require database, Redis, OpenAI, and Resend configuration at startup while keeping secret values out of source control and logs. Configure session, CSRF, upload-size, host, timezone, and generic error behavior with tests for missing required settings.
+
+## 4. Create the manager identity model
+Goal: Represent project managers as email-based Django users without passwords.
+Description: Add a custom user model whose unique login identity is a normalized email address and disable password login in the product UI. Include migrations and model tests for normalization and uniqueness.
+
+## 5. Implement manager passwordless sign-in
+Goal: Exchange a short-lived email link for an authenticated manager session.
+Description: Add request and consumption endpoints that create a cryptographically random hashed token, send the same generic response for known and unknown addresses, consume the token atomically, and redirect to a token-free URL. Test rate limiting, expiry, replay rejection, malformed tokens, successful login, and suppression of raw tokens from logs.
+
+## 6. Add project creation and listing
+Goal: Let an authenticated manager create and view only their own projects.
+Description: Add the Project model and server-rendered create/list pages using UUID public identifiers and owner-scoped ORM queries. Test validation, ownership, and denial of cross-manager access.
+
+## 7. Add project member management
+Goal: Let a manager maintain the invited-member roster for a project.
+Description: Add a ProjectMember model with name, normalized email, active status, and uniqueness within each project, plus manager-only add, edit, deactivate, and list actions. Test validation, duplicate members, and prevention of cross-project reads and mutations.
+
+## 8. Issue revocable member project links
+Goal: Give each invited member account-free, project-scoped access.
+Description: Generate a high-entropy secret per active project member, store only its hash, and exchange a valid link for a scoped session before redirecting to a token-free URL. Test revocation, rotation, invalid tokens, project scoping, and suppression of raw secrets from logs.
+
+## 9. Send invitations through Resend
+Goal: Email each member their private project link.
+Description: Integrate Resend behind Django's email boundary and add an idempotent Celery task for invitation delivery. Test the rendered message, authorized recipients, retry behavior, and ensure API credentials and private links are not written to application logs.
+
+## 10. Model feedback templates and questions
+Goal: Store an ordered feedback template for each project.
+Description: Add template and question models initialized with Start, Stop, and Continue prompts and suitable constraints for ordering and required text. Include migrations and model tests for project ownership, defaults, and deterministic ordering.
+
+## 11. Build the feedback-template editor
+Goal: Let managers customize questions for future rounds.
+Description: Add a manager-only server-rendered editor with HTMX ordering and add, edit, and remove actions. Test validation, project authorization, minimum usable content, and that changes cannot alter a snapshot used by an already-open round.
+
+## 12. Model weekly rounds and question snapshots
+Goal: Represent each weekly cycle with explicit dates, state, and frozen questions.
+Description: Add round states and timestamps for preparation, feedback, topic review, voting, and completion, copying the active questions when a round is created. Test valid state transitions, project timezone handling, and rejection of overlapping active rounds.
+
+## 13. Automate weekly round boundaries
+Goal: Open due rounds on Monday and close them Friday at 5 p.m.
+Description: Add idempotent scheduled tasks that snapshot the template and queue member reminders on opening, then lock submissions and queue summary and clustering work on closure. Test timezone boundaries, inactive members, concurrent closure, repeated execution, and recovery after partial failure.
+
+## 14. Remind managers before a round opens
+Goal: Notify managers one day before their next feedback round.
+Description: Add an idempotent scheduled task and Resend email linking the manager to the upcoming template editor. Test the one-day timing rule, project timezone, deduplication, and omission of private feedback data.
+
+## 15. Submit and edit weekly feedback
+Goal: Let a linked member save one response per question until the deadline.
+Description: Add a member-facing form that loads the current round, supports named or anonymous submission, and atomically replaces the member's answers. Test authorization, question ownership, deadline enforcement, anonymity behavior, and rejection of extra fields.
+
+## 16. Show submission participation before close
+Goal: Let managers see who has submitted without seeing response content.
+Description: Add a manager-only participation view listing roster members and submission status for the current round. Test that answer text and anonymity choices are absent before close and that other projects cannot be queried.
+
+## 17. Generate the private weekly summary
+Goal: Produce a concise manager-only summary with an OpenAI language model.
+Description: Add an idempotent Celery task that sends closed-round feedback to OpenAI, validates the structured response, stores the summary, and records processing status without logging content. Test retries, provider failure, manager-only visibility, duplicate prevention, and removal of anonymous attribution.
+
+## 18. Generate initial discussion-topic clusters
+Goal: Turn closed-round feedback into editable topic drafts.
+Description: Add an idempotent Celery task that requests structured topic titles, descriptions, and source-feedback membership from OpenAI and validates every reference before saving drafts. Test malformed output, nonexistent feedback references, anonymity preservation, provider failure, and retry deduplication.
+
+## 19. Review individual topic drafts
+Goal: Let a manager add, edit, remove, and restore draft topics.
+Description: Build the manager-only topic review page with HTMX actions and server-side project and round authorization. Test field validation, closed-round eligibility, cross-project denial, and safe rendering of user- and model-generated text.
+
+## 20. Merge and split topic drafts
+Goal: Let a manager reorganize topics without losing or duplicating source feedback.
+Description: Add atomic merge and split actions that archive replaced topics and require every affected source-feedback item to appear exactly once in the result. Test invalid selections, missing or duplicate assignments, cross-round tampering, and rollback on failure.
+
+## 21. Publish topics for voting
+Goal: Freeze approved topics and open the voting phase.
+Description: Add a manager-only action that verifies at least one active topic, snapshots its voting-visible content, and advances the round atomically. Test invalid round states, empty publication, repeated requests, and prevention of draft edits after publication.
+
+## 22. Enforce three-vote allocations
+Goal: Store each member's voting allocation without allowing more than three votes.
+Description: Add vote-allocation models and one transactional service that replaces a member's allocation across published topics in the same round. Test zero-to-three temporary allocations, the final three-vote requirement, multiple votes on one topic, concurrent updates, and closed-voting rejection.
+
+## 23. Build the member voting screen
+Goal: Let members assign and revise their three votes with HTMX.
+Description: Render only published topics for the member's project and provide accessible controls that show used and remaining votes. Test token-scoped access, server-side limit errors, preserved allocations after refresh, and safe rendering of topic content.
+
+## 24. Close voting and rank the agenda
+Goal: Produce a stable agenda ordered by total votes.
+Description: Add an idempotent manager action or scheduled task that closes voting, totals allocations, and snapshots agenda order with a deterministic tie-breaker. Test repeated execution, ties, late votes, and isolation between projects and rounds.
+
+## 25. Add facilitator agenda controls
+Goal: Let an authorized facilitator run the ranked agenda.
+Description: Add the minimal project-level facilitator assignment and HTMX actions for marking agenda topics discussed, skipped, or deferred while preserving project-owner access. Test assignment eligibility, removal, allowed status transitions, audit metadata, and denial to members or managers from another project.
+
+## 26. Record meeting notes and decisions
+Goal: Let the facilitator maintain manual notes and decisions for each agenda topic.
+Description: Add project-private, server-rendered forms for topic notes and decisions with explicit length limits and safe text rendering. Test facilitator and owner access, member denial, validation, and updates after a topic status changes.
+
+## 27. Manage action items
+Goal: Record action-item descriptions, owners, and optional due dates.
+Description: Add create, edit, complete, and remove actions scoped to a meeting round, treating the owner as free text rather than automatic assignment. Test required descriptions, optional dates, authorization, cross-project denial, and safe rendering.
+
+## 28. Accept transcript-file uploads
+Goal: Let a facilitator provide an existing transcript without retaining the uploaded file.
+Description: Validate an allowlisted text format and size, decode it safely into normalized text, store the private transcript in PostgreSQL, and discard the upload immediately. Test invalid type, invalid encoding, oversize input, authorization, and cleanup on success and failure.
+
+## 29. Validate recording uploads and temporary-file cleanup
+Goal: Safely accept a recording without retaining it beyond processing.
+Description: Add facilitator-only audio and video upload validation for filename metadata, allowlisted extension, MIME type, size, and file signature, using only a server-generated OS temporary path. Test malformed and oversized files, cross-project access, and unconditional cleanup on successful and exceptional exits without calling OpenAI yet.
+
+## 30. Transcribe validated recordings with OpenAI Whisper
+Goal: Persist a private transcript and immediately destroy its source recording.
+Description: Connect the validated temporary recording flow to OpenAI Whisper, store normalized transcript text in PostgreSQL, and guarantee deletion of the recording whether the provider succeeds or fails. Test mocked successful transcription, provider timeout and error responses, empty output, secret-safe logging, and re-upload behavior after failure.
+
+## 31. Associate transcript sections with agenda topics
+Goal: Suggest which transcript passages belong to each discussed topic.
+Description: Add an idempotent Celery task that sends the private transcript and agenda to an OpenAI language model, validates the structured mappings, and stores them as reviewable drafts. Test invalid topic references, overlapping sections, provider failure, retry deduplication, and private visibility.
+
+## 32. Generate meeting-record suggestions
+Goal: Draft notes, decisions, action items, and topic statuses from the transcript.
+Description: Add an idempotent Celery task that requests structured suggestions from an OpenAI language model and stores them separately from final meeting records. Test schema validation, unsupported owners or statuses, retries, absence of a transcript, and confirmation that drafts never change final data.
+
+## 33. Build the AI-suggestion review screen
+Goal: Let a facilitator inspect, edit, accept, or reject each generated suggestion.
+Description: Render pending suggestions beside the related agenda topic and expose facilitator-only HTMX review controls without applying accepted content yet. Test project authorization, editable-field validation, stale draft handling, safe rendering, and independent decisions for each suggestion.
+
+## 34. Apply approved AI suggestions
+Goal: Atomically turn accepted drafts into final meeting records.
+Description: Add the approval service that creates or updates notes, decisions, action items, and topic statuses only from facilitator-approved drafts while preserving existing manual content. Test partial approval, duplicate submission, rejected drafts, stale targets, transaction rollback, and audit attribution.
+
+## 35. Build the manager dashboard
+Goal: Give managers one entry point to each active project workflow.
+Description: Assemble managed projects, invitations, template status, current deadline, participation, summary, topic review, voting progress, agenda, and meeting records from existing views. Test project isolation, state-appropriate actions, empty states, and that private content appears only to authorized managers.
+
+## 36. Add previous-round history
+Goal: Let managers navigate completed weekly rounds for a project.
+Description: Add a paginated history page and round detail view containing the authorized summary, topics, vote totals, agenda outcome, notes, decisions, and action items. Test ordering, pagination, project isolation, and absence of raw anonymous attribution.
+
+## 37. Add cross-project authorization regression tests
+Goal: Prove that no role can read or mutate another project's resources.
+Description: Add focused integration tests that exercise manager, member, and facilitator access against another project's identifiers across implemented endpoints. Cover direct UUID substitution, nested-resource mismatches, token scope, and consistent not-found or forbidden behavior.
+
+## 38. Add sensitive-data privacy regression tests
+Goal: Prove that private and anonymous data do not leak through pages, emails, logs, or AI payloads.
+Description: Test pre-close feedback secrecy, anonymous attribution removal, manager-only summaries and transcripts, token-free redirects, and sanitized provider-error logging. Include assertions that recording bytes are deleted after both successful and failed Whisper processing.
+
+## 39. Add the end-to-end weekly feedback test
+Goal: Verify the complete feedback-to-agenda workflow through public interfaces.
+Description: Exercise manager sign-in, project and member setup, template editing, automatic round opening, named and anonymous feedback, closure, mocked summary and clustering responses, topic review, publication, three-vote allocation, and agenda ranking. Keep Resend and OpenAI mocked and assert the final round state and privacy boundaries.
+
+## 40. Add the end-to-end meeting processing test
+Goal: Verify the complete agenda-to-approved-records workflow through public interfaces.
+Description: Exercise facilitator assignment, topic statuses, manual records, transcript upload, mocked Whisper transcription with recording cleanup, mocked topic association and meeting suggestions, review, and partial approval. Assert the final notes, decisions, action items, audit attribution, and absence of retained recording data.
